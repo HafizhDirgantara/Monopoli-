@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="id"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Monopoli Nusantara</title>
+<script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<style>
+:root{--bg:#eef1f6;--ink:#14213d;--cd:#fff;--ln:#b9c2d3;--rd:#c62828;--au:#e0a81d}
+@media(prefers-color-scheme:dark){:root{--bg:#0e1626;--ink:#e8ecf5;--cd:#18233a;--ln:#33425f}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.35 system-ui,sans-serif}
+#app{max-width:560px;margin:auto;padding:8px}
+h1{margin:0 0 8px;padding:12px;text-align:center;color:#fff;background:linear-gradient(180deg,var(--rd) 50%,#f4f4f4 50%);border-radius:8px;border-bottom:4px solid var(--au);font:700 20px Georgia,serif;text-shadow:0 1px 2px #0006}
+h1 span{color:var(--ink);text-shadow:none;display:block;font-size:12px;font-weight:400}
+.card{background:var(--cd);border:1px solid var(--ln);border-radius:10px;padding:12px;margin:8px 0}
+button{background:var(--rd);color:#fff;border:0;border-radius:8px;padding:9px 12px;font:600 13px system-ui;margin:3px 3px 0 0;cursor:pointer}
+button.g{background:#51607e}
+input,select{padding:9px;border:1px solid var(--ln);border-radius:8px;background:var(--cd);color:var(--ink);font:inherit;margin:3px 3px 3px 0}
+.code{font:700 36px Georgia,serif;letter-spacing:.2em;color:var(--rd)}
+.row{display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-top:1px dashed var(--ln)}
+#bd{display:grid;grid-template:minmax(0,1.6fr) repeat(9,minmax(0,1fr)) minmax(0,1.6fr)/minmax(0,1.6fr) repeat(9,minmax(0,1fr)) minmax(0,1.6fr);aspect-ratio:1;border:2px solid var(--ink);background:var(--ln);gap:1px}
+.sq{background:var(--cd);display:flex;flex-direction:column;align-items:center;justify-content:space-between;overflow:hidden;text-align:center;font-size:clamp(5px,1.6vw,9px);line-height:1.1;min-width:0}
+.sq i{width:100%;height:20%;flex:none}
+.sq b{font-weight:600;overflow-wrap:anywhere}
+.sq s{text-decoration:none;opacity:.75}
+.sq u{text-decoration:none;font-size:clamp(9px,3.2vw,16px);line-height:1}
+.ctr{grid-area:2/2/11/11;background:var(--cd);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;padding:6px;text-align:center}
+.dice{font-size:clamp(30px,10vw,52px);line-height:1}
+.lg{font-size:11px;opacity:.8;max-height:72px;overflow:hidden}
+.pl{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:8px 0}
+.pc{border:2px solid;border-radius:8px;padding:6px;background:var(--cd)}
+.pc.on{box-shadow:0 0 0 3px var(--au)}
+.pc.out{opacity:.4}
+#chat{margin-top:8px;background:var(--cd);border:1px solid var(--ln);border-radius:10px}
+#log{height:130px;overflow:auto;padding:6px 8px;font-size:13px}
+#chat form{display:flex;border-top:1px solid var(--ln)}
+#chat input{flex:1;margin:4px}
+small{opacity:.7}
+</style></head><body><div id="app">
+<h1>Monopoli Nusantara<span>Jakarta sampai Papua, siapa paling juragan?</span></h1>
+<div id="main"><div class="card">
+<p><b>Main berdua (atau lebih)</b></p>
+<input id="nm" placeholder="Namamu" maxlength="14"><br>
+<button onclick="mk()">Buat ruang</button>
+<hr style="border:0;border-top:1px dashed var(--ln)">
+<input id="code" placeholder="Kode ruang" maxlength="5" style="text-transform:uppercase">
+<button class="g" onclick="jn()">Gabung ruang</button><br><small id="st"></small>
+</div></div>
+<div id="chat" hidden><div id="log"></div>
+<form onsubmit="return sc()"><input id="ci" maxlength="120" placeholder="Ketik pesan…" autocomplete="off"><button>Kirim</button></form></div>
+</div>
+<script>
+const $=s=>document.querySelector(s);
+const esc=s=>String(s).replace(/[&<>"]/g,c=>'&#'+c.charCodeAt(0)+';');
+const COL={br:'#8d5b3c',lb:'#6ec6ff',pk:'#f06292',or:'#ff9800',rd:'#e53935',ye:'#fdd835',gr:'#43a047',db:'#1a237e'};
+const TOK=['🛵','🚕','🚲','🐘'],PC=['#d32f2f','#1976d2','#2e7d32','#f57c00'],BN=['Budi','Siti','Joko'];
+/* [nama,tipe,harga,grup] tipe: g mulai, p properti, s stasiun, u utilitas, c kesempatan, d dana umum, t pajak, j penjara, f parkir, w masuk penjara */
+const B=[['MULAI','g'],['Medan','p',60,'br'],['Dana Umum','d'],['Banda Aceh','p',60,'br'],['Pajak Penghasilan','t',200],['Stasiun Gambir','s',200],['Padang','p',100,'lb'],['Kesempatan','c'],['Palembang','p',100,'lb'],['Pekanbaru','p',120,'lb'],['PENJARA','j'],
+['Bandar Lampung','p',140,'pk'],['PLN','u',150],['Pontianak','p',140,'pk'],['Banjarmasin','p',160,'pk'],['Stasiun Bandung','s',200],['Semarang','p',180,'or'],['Dana Umum','d'],['Yogyakarta','p',180,'or'],['Solo','p',200,'or'],['Parkir Bebas','f'],
+['Surabaya','p',220,'rd'],['Kesempatan','c'],['Malang','p',220,'rd'],['Denpasar','p',240,'rd'],['Bandara Soetta','s',200],['Makassar','p',260,'ye'],['Manado','p',260,'ye'],['PDAM','u',150],['Kendari','p',280,'ye'],['MASUK PENJARA','w'],
+['Balikpapan','p',300,'gr'],['Samarinda','p',300,'gr'],['Dana Umum','d'],['Ambon','p',320,'gr'],['Pelabuhan Priok','s',200],['Kesempatan','c'],['Bali','p',350,'db'],['Pajak Mewah','t',100],['Jakarta','p',400,'db']];
+const CH=[['Arisan RT cair. Terima 100','m',100],['Kena tilang. Bayar 50','m',-50],['Maju ke MULAI (+200)','g',0],['Liburan ke Bali!','g',37],['Mundur 3 petak','b',3],['Masuk penjara!','j'],['Servis motor. Bayar 75','m',-75],['Juara lomba 17-an. Terima 150','m',150]];
+const DU=[['Warisan dari paman. Terima 200','m',200],['Biaya dokter. Bayar 100','m',-100],['Kamu ulang tahun! Tiap pemain kasih 20','e',20],['Untung jual gorengan. Terima 50','m',50],['Kondangan. Bayar 60','m',-60],['THR cair. Terima 120','m',120],['Pajak kendaraan. Bayar 80','m',-80],['Mudik ke Kendari','g',29]];
+const BC=['Wah, hoki banget kamu!','Awas ya, aku mau borong Jakarta 😤','Santai dulu, ngopi yuk ☕','Dadu, tolong baik sama aku 🙏','Sewanya mahal amat, ini mah malak','Gas terus, jangan kendor!','Aku lagi bokek nih 😭','Siapa yang bangkrut duluan, ya?','Bangun hotel dong, jangan pelit','Jangan lupa bayar sewa 😏','Bakso dulu sebelum lanjut?','Cieee, main berdua nih 💕'];
+let S=null,me=0,peer,conn,conns=[],host=false,bt=0;
+const nm=()=>($('#nm')&&$('#nm').value.trim())||'Pemain';
+const msg=t=>{if($('#st'))$('#st').textContent=t};
+const newS=n=>({ph:'lobby',code:'',st:'roll',pl:[{n,t:'h'},...BN.map(b=>({n:'Bot '+b,t:'b'}))],own:{},turn:0,d:[1,1],dbl:0,log:['Selamat datang di Monopoli Nusantara!'],chat:[]});
+const lg=t=>{S.log.push(t);S.log=S.log.slice(-30)};
+const say=(i,t)=>{S.chat.push({n:S.pl[i].n,i,t:String(t).slice(0,120)});S.chat=S.chat.slice(-40)};
+
+/* ===== jaringan ===== */
+function mk(){
+  host=true;me=0;const code=Math.random().toString(36).slice(2,7).toUpperCase();
+  S=newS(nm());S.code=code;
+  peer=new Peer('monoid-'+code);
+  peer.on('error',e=>alert('Gagal membuat ruang ('+e.type+'). Muat ulang lalu coba lagi.'));
+  peer.on('connection',c=>{
+    c.on('data',d=>{
+      if(d.a==='join'){
+        if(c.slot!=null)return;
+        const i=S.pl.findIndex(p=>p.t==='o');
+        if(S.ph!=='lobby'||i<0){c.send({err:'Ruang penuh atau game sudah mulai'});return}
+        c.slot=i;conns.push(c);S.pl[i]={n:String(d.x).slice(0,14),t:'h'};lg(S.pl[i].n+' bergabung');bc();
+      }else if(c.slot!=null)hd(c.slot,d.a,d.x);
+    });
+    c.on('close',()=>{
+      if(c.slot==null)return;const p=S.pl[c.slot];
+      lg(p.n+' keluar');
+      S.pl[c.slot]=S.ph==='lobby'?{n:'Menunggu…',t:'o'}:Object.assign(p,{t:'b',n:'Bot '+p.n});
+      conns=conns.filter(x=>x!==c);bc();
+    });
+  });
+  setInterval(()=>{ /* bot kirim chat acak */
+    if(S.ph==='over')return;const b=S.pl.map((p,i)=>p.t==='b'&&!p.out?i:-1).filter(i=>i>=0);
+    if(b.length&&Math.random()<.4){say(b[Math.random()*b.length|0],BC[Math.random()*BC.length|0]);bc()}
+  },12000);
+  bc();
+}
+function jn(){
+  const code=$('#code').value.trim().toUpperCase();if(!code)return;
+  host=false;msg('Menghubungkan…');const name=nm();
+  peer=new Peer();
+  peer.on('error',e=>msg('Gagal: '+e.type+' (cek kode ruang)'));
+  peer.on('open',()=>{
+    conn=peer.connect('monoid-'+code,{reliable:true});
+    conn.on('open',()=>conn.send({a:'join',x:name}));
+    conn.on('data',d=>{if(d.err){msg(d.err);return}S=d.s;me=d.me;render()});
+    conn.on('close',()=>alert('Koneksi ke host terputus'));
+    setTimeout(()=>{if(!S)msg('Ruang tidak ditemukan. Cek kodenya.')},8000);
+  });
+}
+function bc(){
+  if(host){conns.forEach(c=>{if(c.open)c.send({s:S,me:c.slot})});bot()}
+  render();
+}
+const snd=(a,x)=>host?hd(me,a,x):conn&&conn.send({a,x});
+function sc(){const v=$('#ci').value.trim();if(v&&S)snd('chat',v);$('#ci').value='';return false}
+function setSlot(i,t){if(S.pl[i].t==='h')return;S.pl[i]=t==='b'?{n:'Bot '+BN[i-1],t:'b'}:{n:'Menunggu…',t:'o'};bc()}
+function go(){
+  S.pl.forEach((p,i)=>{if(p.t==='o'){p.t='b';p.n='Bot '+BN[i-1]}Object.assign(p,{$:1500,pos:0,jail:0,out:false})});
+  Object.assign(S,{ph:'play',turn:0,st:'roll',dbl:0});lg('Permainan dimulai! Uang awal Rp 1500jt');bc();
+}
+
+/* ===== aturan main (hanya jalan di host) ===== */
+function hd(i,a,x){
+  if(a==='chat'){say(i,x);return bc()}
+  if(S.ph!=='play'||i!==S.turn)return;
+  const p=S.pl[i];
+  if(a==='roll'&&S.st==='roll')roll(p);
+  else if(a==='pay'&&S.st==='roll'&&p.jail){lg(p.n+' bayar 50, bebas dari penjara');if(pay(p,50))p.jail=0;else next()}
+  else if(a==='buy'&&S.st==='buy'){const q=B[p.pos];p.$-=q[2];S.own[p.pos]={o:i,l:0};lg(p.n+' membeli '+q[0]);S.st='end'}
+  else if(a==='skip'&&S.st==='buy')S.st='end';
+  else if(a==='build')build(p,x);
+  else if(a==='end'&&S.st==='end'){if(S.dbl&&!p.jail&&!p.out)S.st='roll';else next()}
+  bc();
+}
+function roll(p){
+  const a=1+Math.random()*6|0,b=1+Math.random()*6|0,dbl=a===b;S.d=[a,b];
+  if(p.jail){
+    if(dbl){p.jail=0;lg(p.n+' dadu kembar, bebas!')}
+    else{p.jail--;
+      if(p.jail>0){lg(p.n+' gagal keluar penjara ('+(a+b)+')');S.st='end';return}
+      lg(p.n+' wajib bayar 50');if(!pay(p,50))return next();
+    }
+    S.dbl=0;
+  }else if(dbl){if(++S.dbl===3){lg(p.n+' kembar 3x, masuk penjara!');return jail(p)}}
+  else S.dbl=0;
+  lg(p.n+' melempar '+a+'+'+b);
+  const o=p.pos;p.pos=(o+a+b)%40;
+  if(o+a+b>=40){p.$+=200;lg(p.n+' melewati MULAI +200')}
+  land(p);
+  if(p.out&&S.ph==='play')next();
+}
+function jail(p){p.pos=10;p.jail=3;S.dbl=0;S.st='end'}
+function land(p){
+  const i=S.pl.indexOf(p),q=B[p.pos],t=q[1];S.st='end';
+  if(t==='p'||t==='s'||t==='u'){
+    const w=S.own[p.pos];
+    if(!w){if(p.$>=q[2])S.st='buy';else lg(p.n+' tak cukup uang untuk '+q[0])}
+    else if(w.o!==i){const r=rent(p.pos,w);lg(p.n+' bayar sewa '+r+' ke '+S.pl[w.o].n);pay(p,r,w.o)}
+  }else if(t==='t'){lg(p.n+' bayar '+q[0]+' '+q[2]);pay(p,q[2])}
+  else if(t==='w'){lg(p.n+' masuk penjara!');jail(p)}
+  else if(t==='c'||t==='d'){
+    const D=t==='c'?CH:DU,c=D[Math.random()*D.length|0];lg('🃏 '+p.n+': '+c[0]);
+    const k=c[1],v=c[2];
+    if(k==='m'){v>0?p.$+=v:pay(p,-v)}
+    else if(k==='g'){if(v<p.pos)p.$+=200;p.pos=v;land(p)}
+    else if(k==='b'){p.pos=(p.pos+37)%40;land(p)}
+    else if(k==='j')jail(p);
+    else if(k==='e')S.pl.forEach(o=>{if(o!==p&&!o.out)pay(o,v,i)});
+  }
+}
+function pay(p,a,to){
+  const t=to==null?null:S.pl[to];
+  if(p.$>=a){p.$-=a;if(t)t.$+=a;return true}
+  if(t)t.$+=p.$;p.$=0;p.out=true;lg('💥 '+p.n+' bangkrut!');
+  const pi=S.pl.indexOf(p);
+  for(const k in S.own)if(S.own[k].o===pi){if(t)S.own[k]={o:to,l:0};else delete S.own[k]}
+  const alive=S.pl.filter(x=>!x.out);
+  if(alive.length===1){S.ph='over';lg('🏆 '+alive[0].n+' menang!')}
+  return false;
+}
+const grp=c=>B.map((q,i)=>q[3]===c?i:-1).filter(i=>i>=0);
+const full=(c,o)=>grp(c).every(i=>S.own[i]&&S.own[i].o===o);
+function rent(k,w){
+  const q=B[k],n=t=>Object.keys(S.own).filter(x=>B[x][1]===t&&S.own[x].o===w.o).length;
+  if(q[1]==='s')return 25*2**(n('s')-1);
+  if(q[1]==='u')return(S.d[0]+S.d[1])*(n('u')>1?10:4);
+  return Math.ceil(q[2]/22)*[1,5,15,45,80,125][w.l]*(w.l===0&&full(q[3],w.o)?2:1);
+}
+const hcost=k=>50*(1+(k/10|0));
+function build(p,k){
+  const q=B[k],w=S.own[k],i=S.pl.indexOf(p);
+  if(!w||w.o!==i||q[1]!=='p'||!full(q[3],i)||w.l>=5||grp(q[3]).some(j=>S.own[j].l<w.l)||p.$<hcost(k))return;
+  p.$-=hcost(k);w.l++;lg(p.n+' membangun di '+q[0]+' ('+(w.l===5?'hotel':w.l+' rumah')+')');
+}
+function next(){do{S.turn=(S.turn+1)%S.pl.length}while(S.pl[S.turn].out);S.dbl=0;S.st='roll'}
+
+/* ===== bot ===== */
+function bot(){
+  clearTimeout(bt);if(S.ph!=='play')return;
+  const i=S.turn,p=S.pl[i];if(p.t!=='b')return;
+  bt=setTimeout(()=>{
+    if(S.ph!=='play'||S.turn!==i)return;
+    if(S.st==='roll')hd(i,p.jail&&p.$>400?'pay':'roll');
+    else if(S.st==='buy')hd(i,p.$-B[p.pos][2]>=150?'buy':'skip');
+    else{
+      for(const k in S.own)if(S.own[k].o===i&&B[k][1]==='p'&&p.$>500)build(p,+k);
+      if(Math.random()<.3)say(i,BC[Math.random()*BC.length|0]);
+      hd(i,'end');
+    }
+  },1100);
+}
+
+/* ===== tampilan ===== */
+const xy=i=>i<=10?[11,11-i]:i<20?[21-i,1]:i<=30?[1,i-19]:[i-29,11];
+function render(){
+  if(!S)return;
+  $('#main').innerHTML=S.ph==='lobby'?lobby():game();
+  $('#chat').hidden=false;
+  const l=$('#log');
+  l.innerHTML=S.chat.map(c=>`<div><b style="color:${PC[c.i]}">${esc(c.n)}</b> ${esc(c.t)}</div>`).join('');
+  l.scrollTop=l.scrollHeight;
+}
+function lobby(){
+  return`<div class="card"><p>Kode ruang</p><div class="code">${S.code}</div>
+  <small>Kirim kode ini ke pacarmu, lalu dia pilih “Gabung ruang”.</small>`+
+  S.pl.map((p,i)=>`<div class="row"><span>${TOK[i]} ${esc(p.n)}</span>`+
+    (host&&i>0&&p.t!=='h'?`<select onchange="setSlot(${i},this.value)"><option value="b"${p.t==='b'?' selected':''}>Bot</option><option value="o"${p.t==='o'?' selected':''}>Manusia</option></select>`
+    :`<small>${p.t==='b'?'Bot':p.t==='h'?'Manusia':''}</small>`)+'</div>').join('')+
+  (host?'<button onclick="go()">Mulai main</button><br><small>Slot “Manusia” yang belum terisi akan jadi bot saat mulai.</small>':'<p><small>Menunggu host memulai…</small></p>')+'</div>';
+}
+function game(){
+  const p=S.pl[S.turn],mine=S.turn===me&&S.ph==='play',st=S.st,f='⚀⚁⚂⚃⚄⚅';
+  let ctr=`<div class="ctr"><div class="dice">${f[S.d[0]-1]}${f[S.d[1]-1]}</div><div>${S.ph==='over'?'🏆 Permainan selesai':TOK[S.turn]+' Giliran '+esc(p.n)}</div><div>`;
+  if(mine)ctr+=st==='roll'?(p.jail?`<button class="g" onclick="snd('pay')">Bayar 50</button>`:'')+`<button onclick="snd('roll')">🎲 Lempar dadu</button>`
+    :st==='buy'?`<button onclick="snd('buy')">Beli ${B[p.pos][0]} (${B[p.pos][2]})</button><button class="g" onclick="snd('skip')">Lewati</button>`
+    :`<button onclick="snd('end')">Selesai giliran</button>`;
+  ctr+=`</div><div class="lg">${S.log.slice(-5).map(esc).join('<br>')}</div></div>`;
+  const cells=B.map((q,i)=>{
+    const[r,c]=xy(i),w=S.own[i];
+    return`<div class="sq" style="grid-area:${r}/${c};${w?`box-shadow:inset 0 -5px 0 ${PC[w.o]}`:''}">${q[3]?`<i style="background:${COL[q[3]]}"></i>`:''}<b>${q[0]}</b>${q[2]&&!w?`<s>${q[2]}</s>`:''}${w&&w.l?`<s>${w.l>4?'🏨':'🏠'.repeat(w.l)}</s>`:''}<u>${S.pl.map((o,k)=>!o.out&&o.pos===i?TOK[k]:'').join('')}</u></div>`;
+  }).join('');
+  const pls=S.pl.map((q,k)=>`<div class="pc${k===S.turn?' on':''}${q.out?' out':''}" style="border-color:${PC[k]}">${TOK[k]} ${esc(q.n)}${k===me?' (kamu)':''}<br><b>Rp ${q.$}jt</b>${q.jail?' ⛓':''}</div>`).join('');
+  let bl='';
+  if(mine)for(const k in S.own){
+    const w=S.own[k];
+    if(w.o===me&&B[k][1]==='p'&&full(B[k][3],me)&&w.l<5)bl+=`<button class="g" onclick="snd('build',${k})">+ ${B[k][0]} (${hcost(k)})</button>`;
+  }
+  return`<div id="bd">${cells}${ctr}</div><div class="pl">${pls}</div>`+(bl?`<div class="card"><small>Bangun rumah/hotel (harus punya satu set warna)</small><br>${bl}</div>`:'')+(S.ph==='over'?'<div class="card">Muat ulang halaman untuk main lagi.</div>':'');
+}
+</script></body></html>
