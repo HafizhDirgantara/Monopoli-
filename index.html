@@ -2,7 +2,7 @@
 <html lang="id"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Monopoli Nusantara</title>
-<script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mqtt@5.10.1/dist/mqtt.min.js"></script>
 <style>
 :root{--bg:#eef1f6;--ink:#14213d;--cd:#fff;--ln:#b9c2d3;--rd:#c62828;--au:#e0a81d}
 @media(prefers-color-scheme:dark){:root{--bg:#0e1626;--ink:#e8ecf5;--cd:#18233a;--ln:#33425f}}
@@ -35,6 +35,30 @@ input,select{padding:9px;border:1px solid var(--ln);border-radius:8px;background
 #chat form{display:flex;border-top:1px solid var(--ln)}
 #chat input{flex:1;margin:4px}
 small{opacity:.7}
+
+#bw{perspective:1100px;margin:6px 0 16px;--t:30deg}
+#bw.flat{--t:0deg}
+#bd{transform:rotateX(var(--t));transform-origin:50% 62%;transform-style:preserve-3d;transition:transform .7s;box-shadow:0 24px 28px -14px #000a}
+.ctr{transform-style:preserve-3d;position:relative;justify-content:flex-end}
+.mn{position:absolute;left:50%;top:4px;width:48px;height:96px;margin-left:-24px;transform-origin:50% 100%;transform:rotateX(calc(var(--t)*-1));pointer-events:none}
+.mn svg{width:100%;height:100%;display:block;filter:drop-shadow(0 3px 3px #0005)}
+.dice{display:flex;gap:18px;perspective:420px;height:50px;align-items:center;font-size:0}
+.cube{position:relative;width:44px;height:44px;transform-style:preserve-3d}
+.cube b{position:absolute;inset:0;display:grid;place-items:center;font-size:36px;line-height:1;background:#fff;color:#14213d;border:1px solid #9aa5bd;border-radius:8px}
+.cube.roll{animation:spin .95s cubic-bezier(.2,.8,.3,1)}
+@keyframes spin{from{transform:rotateX(900deg) rotateY(720deg) rotateZ(180deg) translateY(-34px)}}
+.sq em{font-style:normal;display:inline-block}
+.sq em.hp{animation:hop .19s}
+@keyframes hop{40%{transform:translateY(-9px) scale(1.4)}}
+.pc{position:relative}
+.fl{position:absolute;right:8px;top:6px;font-weight:700;animation:fly 1.3s forwards}
+.fl.up{color:#4caf50}.fl.dn{color:#ef5350}
+@keyframes fly{0%{opacity:0;transform:translateY(8px)}15%{opacity:1}100%{opacity:0;transform:translateY(-24px)}}
+.cdv{position:fixed;inset:0;display:grid;place-items:center;background:#0006;z-index:9;pointer-events:none;perspective:700px}
+.cin{width:230px;padding:26px 16px;text-align:center;border-radius:14px;color:#fff;font:600 16px Georgia,serif;box-shadow:0 14px 40px #000a;animation:flip .7s}
+.cdv.c .cin{background:#e0861d}.cdv.d .cin{background:#2a6fd1}
+@keyframes flip{from{transform:rotateY(90deg) scale(.6);opacity:0}}
+@media(prefers-reduced-motion:reduce){.cube.roll,.sq em.hp,.cin{animation:none}#bd{transition:none}}
 </style></head><body><div id="app">
 <h1>Monopoli Nusantara<span>Jakarta sampai Papua, siapa paling juragan?</span></h1>
 <div id="main"><div class="card">
@@ -71,55 +95,74 @@ const newS=n=>({ph:'lobby',code:'',st:'roll',pl:[{n,t:'h'},...BN.map(b=>({n:'Bot
 const lg=t=>{S.log.push(t);S.log=S.log.slice(-30)};
 const say=(i,t)=>{S.chat.push({n:S.pl[i].n,i,t:String(t).slice(0,120)});S.chat=S.chat.slice(-40)};
 
-/* ===== jaringan ===== */
+/* ===== jaringan: MQTT lewat WebSocket (lewat server, bukan P2P) ===== */
+const BRK=['wss://broker.emqx.io:8084/mqtt','wss://broker.hivemq.com:8884/mqtt'];
+const cid='c'+Math.random().toString(36).slice(2,10);
+let mq,topic,ids={},seen={},bi=0;
+const J=o=>JSON.stringify(o),P=s=>{try{return JSON.parse(s)}catch(e){return{}}};
+function link(ok){
+  mq=mqtt.connect(BRK[bi],{clientId:cid,connectTimeout:7000,reconnectPeriod:2500});
+  mq.once('connect',ok);
+  const w=setTimeout(()=>{
+    if(mq.connected)return;mq.end(true);
+    if(++bi<BRK.length)link(ok);else{bi=0;msg('Tidak bisa terhubung ke server. Cek internet lalu coba lagi.')}
+  },8000);
+  mq.once('connect',()=>clearTimeout(w));
+}
 function mk(){
-  host=true;me=0;const code=Array.from({length:5},()=>AB[Math.random()*AB.length|0]).join('');
-  const name=nm();msg('Membuat ruang…');
-  peer=new Peer('monoid-'+code,ICE);
-  peer.on('error',e=>msg('Gagal membuat ruang ('+e.type+'). Muat ulang lalu coba lagi.'));
-  peer.on('disconnected',()=>peer.reconnect());
-  document.addEventListener('visibilitychange',()=>{if(!document.hidden&&peer.disconnected)peer.reconnect()});
-  peer.on('open',()=>{S=newS(name);S.code=code;bc();try{navigator.wakeLock.request('screen')}catch(e){}});
-  peer.on('connection',c=>{
-    c.on('data',d=>{
+  host=true;me=0;topic='monoid/';
+  const code=Array.from({length:5},()=>AB[Math.random()*AB.length|0]).join(''),name=nm();
+  msg('Membuat ruang…');
+  link(()=>{
+    topic='monoid/'+code;S=newS(name);S.code=code;
+    mq.subscribe(topic+'/a');
+    mq.on('message',(t,m)=>{
+      const d=P(m);if(!d.id)return;seen[d.id]=Date.now();
       if(d.a==='join'){
-        if(c.slot!=null)return;
+        if(ids[d.id]!=null)return bc();
         const i=S.pl.findIndex(p=>p.t==='o');
-        if(S.ph!=='lobby'||i<0){c.send({err:'Ruang penuh atau game sudah mulai'});return}
-        c.slot=i;conns.push(c);S.pl[i]={n:String(d.x).slice(0,14),t:'h'};lg(S.pl[i].n+' bergabung');bc();
-      }else if(c.slot!=null)hd(c.slot,d.a,d.x);
+        if(S.ph!=='lobby'||i<0){mq.publish(topic+'/s',J({err:'Ruang penuh atau game sudah mulai',to:d.id}));return}
+        ids[d.id]=i;S.pl[i]={n:String(d.x).slice(0,14),t:'h'};lg(S.pl[i].n+' bergabung');bc();
+      }else if(ids[d.id]!=null&&d.a!=='ping')hd(ids[d.id],d.a,d.x);
     });
-    c.on('close',()=>{
-      if(c.slot==null)return;const p=S.pl[c.slot];
-      lg(p.n+' keluar');
-      S.pl[c.slot]=S.ph==='lobby'?{n:'Menunggu…',t:'o'}:Object.assign(p,{t:'b',n:'Bot '+p.n});
-      conns=conns.filter(x=>x!==c);bc();
-    });
+    setInterval(()=>{ /* cek pemain putus, bot chat acak, kirim ulang status */
+      const now=Date.now();
+      for(const k in ids)if(now-seen[k]>20000){
+        const i=ids[k],p=S.pl[i];delete ids[k];lg(p.n+' keluar');
+        S.pl[i]=S.ph==='lobby'?{n:'Menunggu…',t:'o'}:Object.assign(p,{t:'b',n:'Bot '+p.n});
+      }
+      const b=S.pl.map((p,i)=>p.t==='b'&&!p.out?i:-1).filter(i=>i>=0);
+      if(S.ph!=='over'&&b.length&&Math.random()<.15)say(b[Math.random()*b.length|0],BC[Math.random()*BC.length|0]);
+      bc();
+    },5000);
+    bc();
   });
-  setInterval(()=>{ /* bot kirim chat acak */
-    if(!S||S.ph==='over')return;const b=S.pl.map((p,i)=>p.t==='b'&&!p.out?i:-1).filter(i=>i>=0);
-    if(b.length&&Math.random()<.4){say(b[Math.random()*b.length|0],BC[Math.random()*BC.length|0]);bc()}
-  },12000);
 }
 function jn(){
   const code=$('#code').value.trim().toUpperCase().replace(/[^A-Z0-9]/g,'');if(!code)return;
-  host=false;msg('Menghubungkan ke server…');const name=nm();let fail=0;
-  peer=new Peer(undefined,ICE);
-  peer.on('error',e=>{fail=1;msg(e.type==='peer-unavailable'?'Ruang '+code+' tidak aktif. Pastikan host masih membuka halaman game (jangan pindah tab atau kunci layar) dan kodenya benar.':'Gagal: '+e.type)});
-  peer.on('open',()=>{
-    msg('Mencari ruang '+code+'…');
-    conn=peer.connect('monoid-'+code,{reliable:true});
-    conn.on('open',()=>conn.send({a:'join',x:name}));
-    conn.on('data',d=>{if(d.err){msg(d.err);return}S=d.s;me=d.me;render()});
-    conn.on('close',()=>alert('Koneksi ke host terputus'));
-    setTimeout(()=>{if(!S&&!fail)msg('Server ketemu, tapi jalur ke host gagal dibuka (jaringan memblokir). Coba Wi-Fi yang sama atau ganti jaringan.')},15000);
+  host=false;msg('Menghubungkan ke server…');const name=nm();let bad=0,last=Date.now(),dead=0;
+  link(()=>{
+    topic='monoid/'+code;msg('Mencari ruang '+code+'…');
+    mq.subscribe(topic+'/s');
+    mq.on('message',(t,m)=>{
+      const d=P(m);
+      if(d.err){if(d.to===cid){bad=1;msg(d.err)}return}
+      if(d.ids&&d.ids[cid]!=null){S=d.s;me=d.ids[cid];last=Date.now();render()}
+    });
+    const j=()=>mq.publish(topic+'/a',J({a:'join',x:name,id:cid}));
+    j();const t=setInterval(()=>{if(S||bad)clearInterval(t);else j()},2000);
+    setInterval(()=>{
+      mq.publish(topic+'/a',J({a:'ping',id:cid}));
+      if(S&&!dead&&Date.now()-last>16000){dead=1;alert('Host terputus. Minta host membuka ulang ruang.')}
+    },5000);
+    setTimeout(()=>{if(!S&&!bad)msg('Ruang '+code+' tidak aktif. Pastikan host masih membuka halaman game dan kodenya benar.')},10000);
   });
 }
 function bc(){
-  if(host){conns.forEach(c=>{if(c.open)c.send({s:S,me:c.slot})});bot()}
+  if(host){mq.publish(topic+'/s',J({s:S,ids}));bot()}
   render();
 }
-const snd=(a,x)=>host?hd(me,a,x):conn&&conn.send({a,x});
+const snd=(a,x)=>host?hd(me,a,x):mq&&mq.publish(topic+'/a',J({a,x,id:cid}));
 function sc(){const v=$('#ci').value.trim();if(v&&S)snd('chat',v);$('#ci').value='';return false}
 function setSlot(i,t){if(S.pl[i].t==='h')return;S.pl[i]=t==='b'?{n:'Bot '+BN[i-1],t:'b'}:{n:'Menunggu…',t:'o'};bc()}
 function go(){
@@ -141,7 +184,7 @@ function hd(i,a,x){
   bc();
 }
 function roll(p){
-  const a=1+Math.random()*6|0,b=1+Math.random()*6|0,dbl=a===b;S.d=[a,b];
+  const a=1+Math.random()*6|0,b=1+Math.random()*6|0,dbl=a===b;S.d=[a,b];S.rn=(S.rn||0)+1;
   if(p.jail){
     if(dbl){p.jail=0;lg(p.n+' dadu kembar, bebas!')}
     else{p.jail--;
@@ -167,7 +210,7 @@ function land(p){
   }else if(t==='t'){lg(p.n+' bayar '+q[0]+' '+q[2]);pay(p,q[2])}
   else if(t==='w'){lg(p.n+' masuk penjara!');jail(p)}
   else if(t==='c'||t==='d'){
-    const D=t==='c'?CH:DU,c=D[Math.random()*D.length|0];lg('🃏 '+p.n+': '+c[0]);
+    const D=t==='c'?CH:DU,c=D[Math.random()*D.length|0];lg('🃏 '+p.n+': '+c[0]);S.cd={t:c[0],k:t,n:(S.cd?S.cd.n:0)+1};
     const k=c[1],v=c[2];
     if(k==='m'){v>0?p.$+=v:pay(p,-v)}
     else if(k==='g'){if(v<p.pos)p.$+=200;p.pos=v;land(p)}
@@ -220,9 +263,35 @@ function bot(){
 
 /* ===== tampilan ===== */
 const xy=i=>i<=10?[11,11-i]:i<20?[21-i,1]:i<=30?[1,i-19]:[i-29,11];
+const disp=[],mv={},pm=[],fl=[];
+let shRn,shCd,rollUntil=0,cardUntil=0,hop=-1,lastH='',tilt=true;
+const moving=()=>Object.values(mv).some(Boolean);
+const ROT=['','rotateY(-90deg)','rotateX(-90deg)','rotateX(90deg)','rotateY(90deg)','rotateY(180deg)'];
+const FT=['','rotateY(90deg)','rotateX(90deg)','rotateX(-90deg)','rotateY(-90deg)','rotateY(180deg)'];
+const cube=v=>`<div class="cube${Date.now()<rollUntil?' roll':''}" style="transform:${ROT[v-1]||'none'}">`+[1,2,3,4,5,6].map(n=>`<b style="transform:${FT[n-1]} translateZ(22px)">${'⚀⚁⚂⚃⚄⚅'[n-1]}</b>`).join('')+'</div>';
+const MON='<svg viewBox="0 0 50 96"><rect x="6" y="86" width="38" height="9" fill="#cfd6e4"/><rect x="11" y="78" width="28" height="8" fill="#e8ecf5"/><polygon points="21,78 29,78 27,29 23,29" fill="#f4f6fb" stroke="#9aa5bd" stroke-width=".8"/><rect x="17" y="24" width="16" height="5" fill="#e8ecf5"/><rect x="19" y="21" width="12" height="3" fill="#cfd6e4"/><path d="M25 3c5 6 7 9 4 14-1 2-6 2-8 0-3-5-1-8 4-14z" fill="#f5b700"/></svg>';
+function walk(k){ /* pion jalan satu petak per langkah, mulai setelah dadu berhenti */
+  mv[k]=1;
+  setTimeout(()=>{const t=setInterval(()=>{
+    const to=S.pl[k].pos,d=(to-disp[k]+40)%40;
+    if(!d||d>12){disp[k]=to;mv[k]=0;clearInterval(t)}else disp[k]=(disp[k]+1)%40;
+    hop=k;render();
+  },190)},Math.max(0,rollUntil-Date.now()));
+}
 function render(){
   if(!S)return;
-  $('#main').innerHTML=S.ph==='lobby'?lobby():game();
+  if(S.ph!=='lobby'){
+    if(shRn==null){shRn=S.rn||0;shCd=S.cd?S.cd.n:0}
+    if((S.rn||0)!==shRn){shRn=S.rn||0;rollUntil=Date.now()+1000;setTimeout(render,1050)}
+    S.pl.forEach((p,k)=>{if(p.pos==null)return;if(disp[k]==null)disp[k]=p.pos;else if(disp[k]!==p.pos&&!mv[k])walk(k)});
+    if(!moving()){
+      S.pl.forEach((p,k)=>{if(pm[k]!=null&&pm[k]!==p.$)fl[k]={d:p.$-pm[k],u:Date.now()+1300};pm[k]=p.$});
+      if(S.cd&&S.cd.n!==shCd&&Date.now()>=rollUntil){shCd=S.cd.n;cardUntil=Date.now()+3200;setTimeout(render,3300)}
+    }
+  }
+  const h=S.ph==='lobby'?lobby():game();
+  hop=-1;
+  if(h!==lastH){$('#main').innerHTML=h;lastH=h}
   $('#chat').hidden=false;
   const l=$('#log');
   l.innerHTML=S.chat.map(c=>`<div><b style="color:${PC[c.i]}">${esc(c.n)}</b> ${esc(c.t)}</div>`).join('');
@@ -238,21 +307,21 @@ function lobby(){
 }
 function game(){
   const p=S.pl[S.turn],mine=S.turn===me&&S.ph==='play',st=S.st,f='⚀⚁⚂⚃⚄⚅';
-  let ctr=`<div class="ctr"><div class="dice">${f[S.d[0]-1]}${f[S.d[1]-1]}</div><div>${S.ph==='over'?'🏆 Permainan selesai':TOK[S.turn]+' Giliran '+esc(p.n)}</div><div>`;
+  let ctr=`<div class="ctr"><div class="mn">${MON}</div><div class="dice">${cube(S.d[0])}${cube(S.d[1])}</div><div>${S.ph==='over'?'🏆 Permainan selesai':TOK[S.turn]+' Giliran '+esc(p.n)}</div><div>`;
   if(mine)ctr+=st==='roll'?(p.jail?`<button class="g" onclick="snd('pay')">Bayar 50</button>`:'')+`<button onclick="snd('roll')">🎲 Lempar dadu</button>`
     :st==='buy'?`<button onclick="snd('buy')">Beli ${B[p.pos][0]} (${B[p.pos][2]})</button><button class="g" onclick="snd('skip')">Lewati</button>`
     :`<button onclick="snd('end')">Selesai giliran</button>`;
-  ctr+=`</div><div class="lg">${S.log.slice(-5).map(esc).join('<br>')}</div></div>`;
+  ctr+=`</div><div class="lg">${S.log.slice(-3).map(esc).join('<br>')}</div></div>`;
   const cells=B.map((q,i)=>{
     const[r,c]=xy(i),w=S.own[i];
-    return`<div class="sq" style="grid-area:${r}/${c};${w?`box-shadow:inset 0 -5px 0 ${PC[w.o]}`:''}">${q[3]?`<i style="background:${COL[q[3]]}"></i>`:''}<b>${q[0]}</b>${q[2]&&!w?`<s>${q[2]}</s>`:''}${w&&w.l?`<s>${w.l>4?'🏨':'🏠'.repeat(w.l)}</s>`:''}<u>${S.pl.map((o,k)=>!o.out&&o.pos===i?TOK[k]:'').join('')}</u></div>`;
+    return`<div class="sq" style="grid-area:${r}/${c};${w?`box-shadow:inset 0 -5px 0 ${PC[w.o]}`:''}">${q[3]?`<i style="background:${COL[q[3]]}"></i>`:''}<b>${q[0]}</b>${q[2]&&!w?`<s>${q[2]}</s>`:''}${w&&w.l?`<s>${w.l>4?'🏨':'🏠'.repeat(w.l)}</s>`:''}<u>${S.pl.map((o,k)=>!o.out&&disp[k]===i?`<em${hop===k?' class="hp"':''}>${TOK[k]}</em>`:'').join('')}</u></div>`;
   }).join('');
-  const pls=S.pl.map((q,k)=>`<div class="pc${k===S.turn?' on':''}${q.out?' out':''}" style="border-color:${PC[k]}">${TOK[k]} ${esc(q.n)}${k===me?' (kamu)':''}<br><b>Rp ${q.$}jt</b>${q.jail?' ⛓':''}</div>`).join('');
+  const pls=S.pl.map((q,k)=>`<div class="pc${k===S.turn?' on':''}${q.out?' out':''}" style="border-color:${PC[k]}">${TOK[k]} ${esc(q.n)}${k===me?' (kamu)':''}<br><b>Rp ${q.$}jt</b>${q.jail?' ⛓':''}${fl[k]&&Date.now()<fl[k].u?`<span class="fl ${fl[k].d>0?'up':'dn'}">${fl[k].d>0?'+':''}${fl[k].d}</span>`:''}</div>`).join('');
   let bl='';
   if(mine)for(const k in S.own){
     const w=S.own[k];
     if(w.o===me&&B[k][1]==='p'&&full(B[k][3],me)&&w.l<5)bl+=`<button class="g" onclick="snd('build',${k})">+ ${B[k][0]} (${hcost(k)})</button>`;
   }
-  return`<div id="bd">${cells}${ctr}</div><div class="pl">${pls}</div>`+(bl?`<div class="card"><small>Bangun rumah/hotel (harus punya satu set warna)</small><br>${bl}</div>`:'')+(S.ph==='over'?'<div class="card">Muat ulang halaman untuk main lagi.</div>':'');
+  return`<div id="bw" class="${tilt?'':'flat'}"><div id="bd">${cells}${ctr}</div></div><div class="pl">${pls}</div><button class="g" onclick="tilt=!tilt;$('#bw').classList.toggle('flat',!tilt)">Papan miring / datar</button>`+(bl?`<div class="card"><small>Bangun rumah/hotel (harus punya satu set warna)</small><br>${bl}</div>`:'')+(S.ph==='over'?'<div class="card">Muat ulang halaman untuk main lagi.</div>':'')+(Date.now()<cardUntil&&S.cd?`<div class="cdv ${S.cd.k}"><div class="cin">${S.cd.k==='c'?'Kesempatan':'Dana Umum'}<br><br>${esc(S.cd.t)}</div></div>`:'');
 }
 </script></body></html>
