@@ -64,16 +64,22 @@ const BC=['Wah, hoki banget kamu!','Awas ya, aku mau borong Jakarta 😤','Santa
 let S=null,me=0,peer,conn,conns=[],host=false,bt=0;
 const nm=()=>($('#nm')&&$('#nm').value.trim())||'Pemain';
 const msg=t=>{if($('#st'))$('#st').textContent=t};
+const TU={username:'openrelayproject',credential:'openrelayproject'};
+const ICE={config:{iceServers:[{urls:'stun:stun.l.google.com:19302'},{urls:'turn:openrelay.metered.ca:80',...TU},{urls:'turn:openrelay.metered.ca:443',...TU},{urls:'turn:openrelay.metered.ca:443?transport=tcp',...TU}]}};
+const AB='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const newS=n=>({ph:'lobby',code:'',st:'roll',pl:[{n,t:'h'},...BN.map(b=>({n:'Bot '+b,t:'b'}))],own:{},turn:0,d:[1,1],dbl:0,log:['Selamat datang di Monopoli Nusantara!'],chat:[]});
 const lg=t=>{S.log.push(t);S.log=S.log.slice(-30)};
 const say=(i,t)=>{S.chat.push({n:S.pl[i].n,i,t:String(t).slice(0,120)});S.chat=S.chat.slice(-40)};
 
 /* ===== jaringan ===== */
 function mk(){
-  host=true;me=0;const code=Math.random().toString(36).slice(2,7).toUpperCase();
-  S=newS(nm());S.code=code;
-  peer=new Peer('monoid-'+code);
-  peer.on('error',e=>alert('Gagal membuat ruang ('+e.type+'). Muat ulang lalu coba lagi.'));
+  host=true;me=0;const code=Array.from({length:5},()=>AB[Math.random()*AB.length|0]).join('');
+  const name=nm();msg('Membuat ruang…');
+  peer=new Peer('monoid-'+code,ICE);
+  peer.on('error',e=>msg('Gagal membuat ruang ('+e.type+'). Muat ulang lalu coba lagi.'));
+  peer.on('disconnected',()=>peer.reconnect());
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden&&peer.disconnected)peer.reconnect()});
+  peer.on('open',()=>{S=newS(name);S.code=code;bc();try{navigator.wakeLock.request('screen')}catch(e){}});
   peer.on('connection',c=>{
     c.on('data',d=>{
       if(d.a==='join'){
@@ -91,22 +97,22 @@ function mk(){
     });
   });
   setInterval(()=>{ /* bot kirim chat acak */
-    if(S.ph==='over')return;const b=S.pl.map((p,i)=>p.t==='b'&&!p.out?i:-1).filter(i=>i>=0);
+    if(!S||S.ph==='over')return;const b=S.pl.map((p,i)=>p.t==='b'&&!p.out?i:-1).filter(i=>i>=0);
     if(b.length&&Math.random()<.4){say(b[Math.random()*b.length|0],BC[Math.random()*BC.length|0]);bc()}
   },12000);
-  bc();
 }
 function jn(){
-  const code=$('#code').value.trim().toUpperCase();if(!code)return;
-  host=false;msg('Menghubungkan…');const name=nm();
-  peer=new Peer();
-  peer.on('error',e=>msg('Gagal: '+e.type+' (cek kode ruang)'));
+  const code=$('#code').value.trim().toUpperCase().replace(/[^A-Z0-9]/g,'');if(!code)return;
+  host=false;msg('Menghubungkan ke server…');const name=nm();let fail=0;
+  peer=new Peer(undefined,ICE);
+  peer.on('error',e=>{fail=1;msg(e.type==='peer-unavailable'?'Ruang '+code+' tidak aktif. Pastikan host masih membuka halaman game (jangan pindah tab atau kunci layar) dan kodenya benar.':'Gagal: '+e.type)});
   peer.on('open',()=>{
+    msg('Mencari ruang '+code+'…');
     conn=peer.connect('monoid-'+code,{reliable:true});
     conn.on('open',()=>conn.send({a:'join',x:name}));
     conn.on('data',d=>{if(d.err){msg(d.err);return}S=d.s;me=d.me;render()});
     conn.on('close',()=>alert('Koneksi ke host terputus'));
-    setTimeout(()=>{if(!S)msg('Ruang tidak ditemukan. Cek kodenya.')},8000);
+    setTimeout(()=>{if(!S&&!fail)msg('Server ketemu, tapi jalur ke host gagal dibuka (jaringan memblokir). Coba Wi-Fi yang sama atau ganti jaringan.')},15000);
   });
 }
 function bc(){
